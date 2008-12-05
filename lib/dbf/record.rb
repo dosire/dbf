@@ -48,6 +48,9 @@ module DBF
         unpack_string(column) =~ /^(y|t)$/i ? true : false
       when 'I' # integer
         unpack_integer(column)
+      when 'Y' # currency
+        # http://www.whitetown.com/dbf-format/dbf.php
+        unpack_integer(column) 
       when 'T' # datetime
         unpack_datetime(column)
       else
