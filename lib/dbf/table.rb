@@ -3,7 +3,7 @@ module DBF
   class Table
     include Enumerable
     
-    attr_reader :column_count           # The total number of columns (columns)
+    attr_reader :column_count           # The total number of columns
     attr_reader :columns                # An array of DBF::Column
     attr_reader :version                # Internal dBase version number
     attr_reader :last_updated           # Last updated datetime
@@ -13,9 +13,9 @@ module DBF
     attr_reader :data                   # DBF file handle
     attr_reader :memo                   # Memo file handle
     
-    # Initializes a new DBF::Reader
+    # Initializes a new DBF::Table
     # Example:
-    #   reader = DBF::Reader.new 'data.dbf'
+    #   table = DBF::Table.new 'data.dbf'
     def initialize(filename, options = {})
       @data = File.open(filename, 'rb')
       @memo = open_memo(filename)
@@ -65,11 +65,6 @@ module DBF
       end
     end
     
-    # def get_record_from_file(index)
-    #   seek_to_record(@db_index[index])
-    #   Record.new(self)
-    # end
-    
     # Returns a DBF::Record (or nil if the record has been marked for deletion) for the record at <tt>index</tt>.
     def record(index)
       records[index]
@@ -78,16 +73,16 @@ module DBF
     # Find records using a simple ActiveRecord-like syntax.
     #
     # Examples:
-    #   reader = DBF::Reader.new 'mydata.dbf'
+    #   table = DBF::Table.new 'mydata.dbf'
     #   
     #   # Find record number 5
-    #   reader.find(5)
+    #   table.find(5)
     #
     #   # Find all records for Keith Morrison
-    #   reader.find :all, :first_name => "Keith", :last_name => "Morrison"
+    #   table.find :all, :first_name => "Keith", :last_name => "Morrison"
     # 
     #   # Find first record
-    #   reader.find :first, :first_name => "Keith"
+    #   table.find :first, :first_name => "Keith"
     #
     # The <b>command</b> can be an id, :all, or :first.
     # <b>options</b> is optional and, if specified, should be a hash where the keys correspond
@@ -157,6 +152,16 @@ module DBF
       Record.new(self)
     end
     
+    # Dumps all records into a CSV file
+    def to_csv(filename = nil)
+      filename = File.basename(@data.path, '.dbf') + '.csv' if filename.nil?
+      FCSV.open(filename, 'w', :force_quotes => true) do |csv|
+        records.each do |record|
+          csv << record.to_a
+        end
+      end
+    end
+    
     private
     
       def open_memo(file)
@@ -224,14 +229,9 @@ module DBF
       
       def build_db_index
         @db_index = []
-        @deleted_records = []
         0.upto(@record_count - 1) do |n|
           seek_to_record(n)
-          if deleted_record?
-            @deleted_records << n
-          else
-            @db_index << n
-          end
+          @db_index << n unless deleted_record?
         end
       end
       

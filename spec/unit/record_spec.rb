@@ -3,22 +3,25 @@ require File.dirname(__FILE__) + "/../spec_helper"
 describe DBF::Record do
   
   def example_record(data = '')
-    DBF::Record.new(mock_table(data))
+    table = mock_table(data)
+    DBF::Record.new(table)
   end
   
   def mock_table(data = '')
-    table = mock('table')
-    table.stub!(:memo_block_size).and_return(8)
-    table.stub!(:memo).and_return(nil)
-    table.stub!(:columns).and_return([])
-    table.stub!(:data)
-    table.stub!(:has_memo_file?).and_return(true)
-    table.data.stub!(:read).and_return(data)
-    table
+    @column1 = DBF::Column.new 'ColumnName', 'N', 1, 0
+    
+    returning mock('table') do |table|
+      table.stub!(:memo_block_size).and_return(8)
+      table.stub!(:memo).and_return(nil)
+      table.stub!(:columns).and_return([@column1])
+      table.stub!(:data).and_return(data)
+      table.stub!(:has_memo_file?).and_return(true)
+      table.data.stub!(:read).and_return(data)
+    end
   end
   
   context "when initialized" do
-    it "should typecast number columns with decimals == 0 to Integer" do
+    it "should typecast number columns no decimal places to Integer" do
       table = DBF::Table.new "#{DB_PATH}/dbase_83.dbf"
       table.column("ID").type.should == "N"
       table.column("ID").decimal.should == 0
@@ -42,20 +45,6 @@ describe DBF::Record do
       table = DBF::Table.new "#{DB_PATH}/dbase_30.dbf"
       table.column("WEBINCLUDE").type.should == "L"
       table.records.all? {|record| record.attributes["webinclude"].should satisfy {|v| v == true || v == false}}
-    end
-  
-    it "should typecast datetime columns to DateTime" do
-      record = example_record("Nl%\000\300Z\252\003")
-      column = mock('column', :length => 8)
-  
-      record.instance_eval {unpack_datetime(column)}.to_s.should == "2002-10-10T17:04:56+00:00"
-    end
-  
-    it "should typecast integers to Fixnum" do
-      record = example_record("\017\020\000\000")
-      column = mock('column', :length => 4)
-  
-      record.instance_eval {unpack_integer(column)}.should == 4111
     end
   end
   
@@ -96,29 +85,40 @@ describe DBF::Record do
     end
   end
   
-  describe "#typecase_column" do
+  describe '#to_a' do
+    it 'should return an ordered array of attribute values' do
+      table = DBF::Table.new "#{DB_PATH}/dbase_8b.dbf"
+      record = table.records[9]
+      record.to_a.should == ["Ten records stored in this database", 10.0, nil, false, "0.100000000000000000", nil]
+    end
+  end
+  
+  describe '#==' do
     before do
-      @table = mock_table
-      @column = mock('column')
-      @column.stub!(:name).and_return('created')
-      @column.stub!(:length).and_return(8)
-      @column.stub!(:type).and_return('D')
-      @table.stub!(:columns).and_return([@column])
-      @record = DBF::Record.new(@table)
+      @record = example_record
     end
     
-    describe 'when column is type D' do
-      it 'should return Time' do
-        @record.stub!(:unpack_string).and_return('20080606')
-        @record.send(:typecast_column, @column).should == Time.gm(2008, 6, 6)
-      end
-    
-      it 'should return Date if Time is out of range' do
-        @record.stub!(:unpack_string).and_return('19440606')
-        @record.send(:typecast_column, @column).should == Date.new(1944, 6, 6)
-      end
+    it 'should be false if other does not have attributes' do
+      other = mock('object')
+      (@record == other).should be_false
     end
     
+    it 'should be true if other attributes match' do
+      attributes = {:x => 1, :y => 2}
+      @record.stub!(:attributes).and_return(attributes)
+      other = mock('object', :attributes => attributes)
+      (@record == other).should be_true
+    end
+  end
+  
+  describe 'unpack_data' do
+    before do
+      @record = example_record('abc')
+    end
+    
+    it 'should unpack the data' do
+      @record.send(:unpack_data, 3).should == 'abc'
+    end
   end
 
 end

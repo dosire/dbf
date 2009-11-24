@@ -1,12 +1,11 @@
 module DBF
   class Record
-    include Helpers
-    
     attr_reader :attributes
+    delegate :columns, :to => :@table
     
     def initialize(table)
       @table, @data, @memo = table, table.data, table.memo
-      initialize_values(table.columns)
+      initialize_values
       define_accessors
     end
     
@@ -14,10 +13,14 @@ module DBF
       other.respond_to?(:attributes) && other.attributes == attributes
     end
     
+    def to_a
+      columns.map { |column| @attributes[column.name.underscore] }
+    end
+    
     private
     
     def define_accessors
-      @table.columns.each do |column|
+      columns.each do |column|
         underscored_column_name = column.name.underscore
         unless respond_to?(underscored_column_name)
           self.class.send :define_method, underscored_column_name do
@@ -27,9 +30,15 @@ module DBF
       end
     end
     
-    def initialize_values(columns)
+    def initialize_values
       @attributes = columns.inject({}) do |hash, column|
-        hash[column.name.underscore] = typecast_column(column)
+        if column.type == 'M'
+          starting_block = unpack_data(column.length).to_i
+          hash[column.name.underscore] = read_memo(starting_block)
+        else
+          value = unpack_data(column.length)
+          hash[column.name.underscore] = column.type_cast(value)
+        end
         hash
       end
     end
@@ -62,20 +71,8 @@ module DBF
       @data.read(column.length).to_s.unpack("a#{column.length}")
     end
   
-    def unpack_string(column)
-      unpack_column(column).to_s
-    end
-    
-    def unpack_integer(column)
-      @data.read(column.length).unpack("v").first
-    end
-    
-    def unpack_datetime(column)
-      days, milliseconds = @data.read(column.length).unpack('l2')
-      hours = (milliseconds / MS_PER_HOUR).to_i
-      minutes = ((milliseconds - (hours * MS_PER_HOUR)) / MS_PER_MINUTE).to_i
-      seconds = ((milliseconds - (hours * MS_PER_HOUR) - (minutes * MS_PER_MINUTE)) / MS_PER_SECOND).to_i
-      DateTime.jd(days, hours, minutes, seconds)
+    def unpack_data(length)
+      @data.read(length).unpack("a#{length}").first
     end
   
     def read_memo(start_block)
@@ -87,7 +84,7 @@ module DBF
     def build_fpt_memo(start_block)
       @memo.seek(start_block * memo_block_size)
       
-      memo_type, memo_size, memo_string = @memo.read(memo_block_size).unpack("NNa56")
+      memo_type, memo_size, memo_string = @memo.read(memo_block_size).unpack("NNa*")
       return nil unless memo_type == 1 and memo_size > 0
       
       if memo_size > memo_block_content_size
@@ -105,7 +102,8 @@ module DBF
       when "83" # dbase iii
         memo_string = ""
         loop do
-          memo_string << block = @memo.read(memo_block_size)
+          block = @memo.read(memo_block_size)
+          memo_string << block
           break if block.rstrip.size < memo_block_size
         end
       when "8b" # dbase iv
